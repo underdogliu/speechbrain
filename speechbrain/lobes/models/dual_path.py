@@ -1133,6 +1133,143 @@ class Dual_Path_Model(nn.Module):
         return input
 
 
+class TransformerSeparationModel(nn.Module):
+    """TODO
+
+    Arguments
+    ---------
+    in_channels : int
+        Number of channels at the output of the encoder.
+    out_channels : int
+        Number of channels that would be inputted to the intra and inter blocks.
+    intra_model : torch.nn.module
+        Model to process within the chunks.
+    inter_model : torch.nn.module
+        model to process across the chunks,
+    num_layers : int
+        Number of layers of Dual Computation Block.
+    norm : str
+        Normalization type.
+    K : int
+        Chunk length.
+    num_spks : int
+        Number of sources (speakers).
+    skip_around_intra : bool
+        Skip connection around intra.
+    linear_layer_after_inter_intra : bool
+        Linear layer after inter and intra.
+    use_global_pos_enc : bool
+        Global positional encodings.
+    max_length : int
+        Maximum sequence length.
+
+    Example
+    ---------
+    >>> intra_block = SBTransformerBlock(1, 64, 8)
+    >>> inter_block = SBTransformerBlock(1, 64, 8)
+    >>> dual_path_model = Dual_Path_Model(64, 64, intra_block, inter_block, num_spks=2)
+    >>> x = torch.randn(10, 64, 2000)
+    >>> x = dual_path_model(x)
+    >>> x.shape
+    torch.Size([2, 10, 64, 2000])
+    """
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        # intra_model,
+        # inter_model,
+        num_layers=1,
+        norm="ln",
+        K=200,
+        num_spks=2,
+        skip_around_intra=True,
+        linear_layer_after_inter_intra=True,
+        use_global_pos_enc=False,
+        max_length=20000,
+    ):
+        super(TransformerSeparationModel, self).__init__()
+        self.K = K
+        self.num_spks = num_spks
+        self.num_layers = num_layers
+        self.norm = select_norm(norm, in_channels, 3)
+        self.conv1d = nn.Conv1d(in_channels, out_channels, 1, bias=False)
+        self.use_global_pos_enc = use_global_pos_enc
+
+        if self.use_global_pos_enc:
+            self.pos_enc = PositionalEncoding(max_length)
+
+        self.conv2d = nn.Conv2d(
+            out_channels, out_channels * num_spks, kernel_size=1
+        )
+        self.end_conv1x1 = nn.Conv1d(out_channels, in_channels, 1, bias=False)
+        self.prelu = nn.PReLU()
+        self.activation = nn.ReLU()
+        # gated output layer
+        self.output = nn.Sequential(
+            nn.Conv1d(out_channels, out_channels, 1), nn.Tanh()
+        )
+        self.output_gate = nn.Sequential(
+            nn.Conv1d(out_channels, out_channels, 1), nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        """Returns the output tensor.
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            Input tensor of dimension [B, N, L].
+
+        Returns
+        -------
+        out : torch.Tensor
+            Output tensor of dimension [spks, B, N, L]
+            where, spks = Number of speakers
+               B = Batchsize,
+               N = number of filters
+               L = the number of time points
+        """
+
+        # [B, N, L]
+        x = self.norm(x)
+        # [B, N, L]
+        x = self.conv1d(x)
+        # # TODO: check we need pos encoding
+        # if self.use_global_pos_enc:
+        #     x = self.pos_enc(x.transpose(1, -1)).transpose(1, -1) + x * (
+        #         x.size(1) ** 0.5
+        #     )
+
+        # # [B, N, K, S]
+        # x, gap = self._Segmentation(x, self.K)
+        # [B, N*spks, L]
+        # for i in range(self.num_layers):
+        #     x = self.dual_mdl[i](x)
+
+        # self.dual_mdl[1].inter_mdl.mdl.layers[0].linear1.weight to see the weights
+
+        x = self.prelu(x)
+        x = self.conv2d(x)  # TODO: probably conv1D here?
+        # [B, N*spks, L]
+        B, N, L = x.shape
+        x = x.view(B * self.num_spks, N, L)
+        # # [B*spks, N, L]
+        # x = self._over_add(x, gap)
+        x = self.output(x) * self.output_gate(x)
+        # [B*spks, N, L]
+        x = self.end_conv1x1(x)
+        # [B*spks, N, L] -> [B, spks, N, L]
+        _, N, L = x.shape
+        x = x.view(B, self.num_spks, N, L)
+        x = self.activation(x)
+        # [spks, B, N, L]
+        x = x.transpose(0, 1)
+
+        return x
+
+
 class SepformerWrapper(nn.Module):
     """The wrapper for the sepformer model which combines the Encoder, Masknet and the decoder
     https://arxiv.org/abs/2010.13154
