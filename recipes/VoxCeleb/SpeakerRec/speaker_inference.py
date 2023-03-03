@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """
 Recipe for computing the speaker embeddings and store them in
-various manner. 
+various manner for 1-to-1 
 This recipe is designed to work on a single GPU.
 
 To run this recipe, run the following command:
@@ -47,7 +47,6 @@ def compute_embedding_loop(input_list, data_folder, output_file):
         list order, so it is better to not shuffle
         anything.
     """
-    embeddings = []
     num_files = 0
     with open(input_list, "r") as inl:
         for line in inl:
@@ -58,9 +57,9 @@ def compute_embedding_loop(input_list, data_folder, output_file):
             embeddings.append(embedding)
             num_files += 1
     
-    embeddings = torch.stack(embeddings).numpy()
+    embeddings = torch.vstack(embeddings).numpy()
     numpy.save(output_file, embeddings, allow_pickle=True)
-    print("x-vector for {} files from {}, are stored in {}".format(num_files, input_list, output_file))
+    print("x-vector for {} files from {} are stored in {}".format(num_files, input_list, output_file))
     
 
 if __name__ == "__main__":
