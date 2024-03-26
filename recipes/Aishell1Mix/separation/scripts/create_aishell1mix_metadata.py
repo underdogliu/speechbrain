@@ -73,7 +73,7 @@ def main(args):
     md_dir = args.metadata_outdir
     if md_dir is None:
         root = os.path.dirname(aishell1_dir)
-        md_dir = os.path.join(root, f"aishell1mix/metadata")
+        md_dir = os.path.join(root, "aishell1mix/metadata")
     os.makedirs(md_dir, exist_ok=True)
     create_aishell1mix_metadata(
         aishell1_dir, aishell1_md_dir, wham_dir, wham_md_dir, md_dir, n_src
@@ -197,7 +197,7 @@ def create_aishell1mix_df(
         # Do the mixture
         mixture_max = mix(sources_list_norm)
         # Check the mixture for clipping and renormalize if necessary
-        renormalize_loudness, did_clip = check_for_cliping(
+        renormalize_loudness, did_clip = check_for_clipping(
             mixture_max, sources_list_norm
         )
         clip_counter += int(did_clip)
@@ -432,7 +432,7 @@ def mix(sources_list_norm):
     return mixture_max
 
 
-def check_for_cliping(mixture_max, sources_list_norm):
+def check_for_clipping(mixture_max, sources_list_norm):
     """Check the mixture (mode max) for clipping and re normalize if needed."""
     # Initialize renormalized sources and loudness
     renormalize_loudness = []

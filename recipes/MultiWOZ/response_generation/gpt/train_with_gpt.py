@@ -227,7 +227,7 @@ def dataio_prep(hparams, tokenizer):
     # history_window, i.e. how many user-system exchanges consider as context (+1 to consider at least the last user turn)
     history_window = 2 * hparams["max_history"] + 1
 
-    #  Define histoy pipeline:
+    #  Define history pipeline:
     @sb.utils.data_pipeline.takes("history")
     @sb.utils.data_pipeline.provides(
         "history",
@@ -337,7 +337,7 @@ def dataio_prep(hparams, tokenizer):
 
         # create the language model label (ground truth) for the current input
         # -100 is a special tokens that is ignored during the loss computation
-        # the idea is to mask everything except the reply (withouth the speaker token)
+        # the idea is to mask everything except the reply (without the speaker token)
         # N.B. we don't have bos in the input
         lm_labels = (
             [hparams["ignore_index"]] * history_ids.shape[0]

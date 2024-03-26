@@ -296,7 +296,7 @@ def full_path_to_audio_file(data_folder, slice_file_name, fold_num):
     """Get path to file given slice file name and fold number
     Arguments
     ---------
-    data_foder : str
+    data_folder : str
         Folder that contains the dataset.
     slice_file_name : str
         Filename.
@@ -348,19 +348,19 @@ def create_metadata_speechbrain_file(data_folder):
     return esc50_speechbrain_metadata_csv_path
 
 
-def removesuffix(somestring, suffix):
+def removesuffix(some_string, suffix):
     """Removed a suffix from a string
     Arguments
     ---------
-    somestring : str
+    some_string : str
         Any string.
     suffix : str
-        Suffix to be removed from somestring.
+        Suffix to be removed from some_string.
     Returns
     ------
-    string resulting from suffix removed from somestring, if found, unchanged otherwise
+    string resulting from suffix removed from some_string, if found, unchanged otherwise
     """
-    if somestring.endswith(suffix):
-        return somestring[: -1 * len(suffix)]
+    if some_string.endswith(suffix):
+        return some_string[: -1 * len(suffix)]
     else:
-        return somestring
+        return some_string

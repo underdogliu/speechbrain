@@ -34,7 +34,7 @@ try:
         warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
     else:
         logger.info(
-            "Numba verbose is enabled. To desactivate it, set NUMBA_VERBOSE to 0."
+            "Numba verbose is enabled. To deactivate it, set NUMBA_VERBOSE to 0."
         )
 
 except ImportError:
@@ -73,7 +73,7 @@ def cu_kernel_forward(log_probs, labels, alpha, log_p, T, U, blank, lock):
     U : tensor
         1D Tensor of (batch) containing LabelLength of each target.
     blank : int
-        Blank indice.
+        Blank index.
     lock : tensor
         2D Tensor of (batch x LabelLength) containing bool(1-0) lock for parallel computation.
     """
@@ -149,7 +149,7 @@ def cu_kernel_backward(log_probs, labels, beta, log_p, T, U, blank, lock):
     U : tensor
         1D Tensor of (batch) containing LabelLength of each target.
     blank : int
-        Blank indice.
+        Blank index.
     lock : tensor
         2D Tensor of (batch x LabelLength) containing bool(1-0) lock for parallel computation.
     """
@@ -221,7 +221,7 @@ def cu_kernel_compute_grad(log_probs, labels, alpha, beta, grads, T, U, blank):
     U : tensor
         1D Tensor of (batch) containing LabelLength of each target.
     blank : int
-        Blank indice.
+        Blank index.
     lock : int
         2D Tensor of (batch x LabelLength) containing bool(1-0) lock for parallel computation.
     """
@@ -324,7 +324,7 @@ class TransducerLoss(Module):
     This class implements the Transduce loss computation with forward-backward algorithm.
     Sequence Transduction with naive implementation : https://arxiv.org/pdf/1211.3711.pdf
 
-    The TranducerLoss(nn.Module) use Transducer(autograd.Function)
+    The TransducerLoss(nn.Module) use Transducer(autograd.Function)
     to compute the forward-backward loss and gradients.
 
     Input tensors must be on a cuda device.
@@ -343,7 +343,7 @@ class TransducerLoss(Module):
     """
 
     def __init__(self, blank=0, reduction="mean"):
-        super(TransducerLoss, self).__init__()
+        super().__init__()
         self.blank = blank
         self.reduction = reduction
         self.loss = Transducer.apply

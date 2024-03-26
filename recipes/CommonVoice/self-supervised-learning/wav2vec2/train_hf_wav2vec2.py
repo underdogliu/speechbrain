@@ -62,10 +62,10 @@ class W2VBrain(sb.core.Brain):
 
         if stage == sb.Stage.TRAIN:
             # We don't have to compute anything as the HF model directly returns
-            # the constrative loss.
+            # the contrastive loss.
             loss = predictions
         else:
-            # We compute the accuracy between embeddings with cosing sim.
+            # We compute the accuracy between embeddings with cosine_sim.
             loss, out, mask_time_indices = predictions
             cosine_sim = torch.cosine_similarity(
                 out.projected_states, out.projected_quantized_states, dim=-1
