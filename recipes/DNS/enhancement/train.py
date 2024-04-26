@@ -19,35 +19,34 @@ Authors
  * Jianyuan Zhong 2020
 """
 
-import os
-import glob
-import sys
 import csv
+import glob
 import json
 import logging
-import numpy as np
-from tqdm import tqdm
-from typing import Dict
+import os
+import sys
 from functools import partial
+from typing import Dict
 
-import torch
-import torchaudio
 import braceexpand
-import webdataset as wds
+import numpy as np
+import torch
 import torch.nn.functional as F
-
-import speechbrain as sb
-from hyperpyyaml import load_hyperpyyaml
+import torchaudio
+import webdataset as wds
 from composite_eval import eval_composite
-import speechbrain.nnet.schedulers as schedulers
-from speechbrain.utils.distributed import run_on_main
-from speechbrain.utils.metric_stats import MetricStats
-from speechbrain.processing.features import spectral_magnitude
-from speechbrain.dataio.batch import PaddedBatch
-from speechbrain.core import AMPConfig
-
+from hyperpyyaml import load_hyperpyyaml
 from pesq import pesq
 from pystoi import stoi
+from tqdm import tqdm
+
+import speechbrain as sb
+import speechbrain.nnet.schedulers as schedulers
+from speechbrain.core import AMPConfig
+from speechbrain.dataio.batch import PaddedBatch
+from speechbrain.processing.features import spectral_magnitude
+from speechbrain.utils.distributed import run_on_main
+from speechbrain.utils.metric_stats import MetricStats
 
 
 # Define training procedure
@@ -184,7 +183,7 @@ class Enhancement(sb.Brain):
                             self.nonfinite_count
                         )
                     )
-                    loss.data = torch.tensor(0).to(self.device)
+                    loss.data = torch.tensor(0.0).to(self.device)
             else:
                 predictions, clean = self.compute_forward(
                     noisy, clean, sb.Stage.TRAIN, noise
@@ -216,7 +215,7 @@ class Enhancement(sb.Brain):
                             self.nonfinite_count
                         )
                     )
-                    loss.data = torch.tensor(0).to(self.device)
+                    loss.data = torch.tensor(0.0).to(self.device)
         self.optimizer.zero_grad()
 
         return loss.detach().cpu()
