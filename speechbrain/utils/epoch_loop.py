@@ -12,6 +12,7 @@ from speechbrain.utils.logger import get_logger
 from .checkpoints import (
     mark_as_loader,
     mark_as_saver,
+    mark_as_transfer,
     register_checkpoint_hooks,
 )
 
@@ -61,16 +62,17 @@ class EpochCounter:
 
     @mark_as_saver
     def _save(self, path):
-        with open(path, "w") as fo:
+        with open(path, "w", encoding="utf-8") as fo:
             fo.write(str(self.current))
 
     @mark_as_loader
+    @mark_as_transfer
     def _recover(self, path, end_of_epoch=True):
         # NOTE: end_of_epoch = True by default so that when
         #  loaded in parameter transfer, this starts a new epoch.
         #  However, parameter transfer to EpochCounter should
         #  probably never be used really.
-        with open(path) as fi:
+        with open(path, encoding="utf-8") as fi:
             saved_value = int(fi.read())
             if end_of_epoch:
                 self.current = saved_value
@@ -171,7 +173,7 @@ class EpochCounterWithStopper(EpochCounter):
 
     @mark_as_saver
     def _save(self, path):
-        with open(path, "w") as fo:
+        with open(path, "w", encoding="utf-8") as fo:
             yaml.dump(
                 {
                     "current_epoch": self.current,
@@ -183,9 +185,10 @@ class EpochCounterWithStopper(EpochCounter):
             )
 
     @mark_as_loader
+    @mark_as_transfer
     def _recover(self, path, end_of_epoch=True, device=None):
         del device  # Not used.
-        with open(path) as fi:
+        with open(path, encoding="utf-8") as fi:
             saved_dict = yaml.safe_load(fi)
             if end_of_epoch:
                 self.current = saved_dict["current_epoch"]

@@ -6,8 +6,9 @@ Author
 """
 
 import os
+import warnings
 
-from tqdm.contrib import tqdm
+from tqdm import tqdm
 
 from speechbrain.utils.logger import get_logger
 
@@ -23,6 +24,13 @@ except ImportError:
 import joblib
 
 logger = get_logger(__name__)
+
+warnings.warn(
+    message="speechbrain.utils.kmeans is deprecated in favor of "
+    "speechbrain.integrations.audio_tokenizers.kmeans and will be removed in a future version",
+    category=DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def accumulate_and_extract_features(
@@ -41,7 +49,7 @@ def accumulate_and_extract_features(
     ssl_layer_num : int
         specify output of which layer of the ssl_model should be used.
     device : str
-        CPU or GPU.
+        `cpu` or `cuda` device.
     """
     batch = batch.to(device)
     wavs, wav_lens = batch.sig
@@ -118,6 +126,28 @@ def fetch_kmeans_model(
     )
 
 
+def process_chunks(data, chunk_size, model):
+    """Process data in chunks of a specified size.
+
+    Arguments
+    ---------
+    data : list
+        The list of integers to be processed.
+    chunk_size : int
+        The size of each chunk.
+    model : MiniBatchKMeans
+        The initial kmeans model for training.
+    """
+    for i in range(0, len(data), chunk_size):
+        chunk = data[i : i + chunk_size]
+
+        # Skip processing if the chunk size is smaller than chunk_size
+        if len(chunk) < chunk_size:
+            break
+
+        model = model.partial_fit(chunk)
+
+
 def train(
     model,
     train_set,
@@ -132,22 +162,22 @@ def train(
 
     Arguments
     ---------
-        model : MiniBatchKMeans
-            The initial kmeans model for training.
-        train_set : Dataloader
-            Batches of tarining data.
-        ssl_model
-            SSL-model used to  extract features used for clustering.
-        save_path: string
-            Path to save intra-checkpoints and dataloader.
-        ssl_layer_num : int
-            Specify output of which layer of the ssl_model should be used.
-        device
-            CPU or  GPU.
-        kmeans_batch_size : int
-            Size of the mini batches.
-        checkpoint_interval: int
-            Determine at which iterations to save the checkpoints.
+    model : MiniBatchKMeans
+        The initial kmeans model for training.
+    train_set : Dataloader
+        Batches of tarining data.
+    ssl_model : torch.nn.Module
+        SSL-model used to  extract features used for clustering.
+    save_path: string
+        Path to save intra-checkpoints and dataloader.
+    ssl_layer_num : int
+        Specify output of which layer of the ssl_model should be used.
+    kmeans_batch_size : int
+        Size of the mini batches.
+    device : str
+        `cpu` or `cuda` device.
+    checkpoint_interval: int
+        Determine at which iterations to save the checkpoints.
     """
     logger.info("Start training kmeans model.")
     features_list = []
@@ -165,7 +195,7 @@ def train(
 
             # train a kmeans model on a single batch if  features_list reaches the kmeans_batch_size.
             if len(features_list) >= kmeans_batch_size:
-                model = model.fit(features_list)
+                process_chunks(features_list, kmeans_batch_size, model)
                 iteration += 1
                 features_list = []
 
@@ -182,8 +212,8 @@ def train(
                 )
                 save_model(model, checkpoint_path)
 
-        if len(features_list) > 0:
-            model = model.fit(features_list)
+        if len(features_list) >= kmeans_batch_size:
+            process_chunks(features_list, kmeans_batch_size, model)
 
 
 def save_model(model, checkpoint_path):
@@ -191,9 +221,9 @@ def save_model(model, checkpoint_path):
 
     Arguments
     ---------
-        model : MiniBatchKMeans
-            The  kmeans model to be saved.
-        checkpoint_path : str)
-            Path to save the model..
+    model : MiniBatchKMeans
+        The  kmeans model to be saved.
+    checkpoint_path : str
+        Path to save the model.
     """
     joblib.dump(model, open(checkpoint_path, "wb"))

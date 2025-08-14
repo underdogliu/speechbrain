@@ -10,6 +10,8 @@ Authors
 """
 
 import pathlib
+import platform
+import warnings
 
 from speechbrain.utils.checkpoints import (
     DEFAULT_LOAD_HOOKS,
@@ -17,8 +19,12 @@ from speechbrain.utils.checkpoints import (
     PARAMFILE_EXT,
     get_default_hook,
 )
-from speechbrain.utils.distributed import run_on_main
-from speechbrain.utils.fetching import FetchSource, LocalStrategy, fetch
+from speechbrain.utils.fetching import (
+    FetchConfig,
+    FetchSource,
+    LocalStrategy,
+    fetch,
+)
 from speechbrain.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,13 +33,20 @@ logger = get_logger(__name__)
 class Pretrainer:
     """Orchestrates pretraining
 
-    First collects parameter file symlinks into the given directory. Then
-    calls load hooks for each of those parameter files.
+    First optionally collects files from some source (local directory,
+    HuggingFace repository, base URL), into the `collect_in` directory, if
+    specified.
+
+    Then, calls load hooks for each of those files.
 
     Arguments
     ---------
-    collect_in : str or Path
-        Path to directory where the parameter file symlinks are collected.
+    collect_in : str or Path, optional
+        Path to directory where the files are to be collected.
+        If `None`, then files will be referred to from cache or directly, if
+        possible (URLs will fail). There will not be a centralized target
+        directory with all the files.
+
     loadables : mapping
         Mapping from loadable key to object. This connects the keys to
         the actual object instances.
@@ -56,14 +69,16 @@ class Pretrainer:
 
     def __init__(
         self,
-        collect_in="./model_checkpoints",
+        collect_in=None,
         loadables=None,
         paths=None,
         custom_hooks=None,
         conditions=None,
     ):
         self.loadables = {}
-        self.collect_in = pathlib.Path(collect_in)
+
+        self.set_collect_in(collect_in)
+
         if loadables is not None:
             self.add_loadables(loadables)
         self.paths = {}
@@ -79,7 +94,7 @@ class Pretrainer:
 
     def set_collect_in(self, path):
         """Change the collecting path"""
-        self.collect_in = pathlib.Path(path)
+        self.collect_in = pathlib.Path(path) if path is not None else None
 
     def add_loadables(self, loadables):
         """Update the loadables dict from the given mapping.
@@ -173,8 +188,8 @@ class Pretrainer:
     def collect_files(
         self,
         default_source=None,
-        use_auth_token=False,
-        local_strategy: LocalStrategy = LocalStrategy.NO_LINK,
+        local_strategy=LocalStrategy.SYMLINK,
+        fetch_config=FetchConfig(),
     ):
         """Fetches parameters from known paths with fallback default_source
 
@@ -190,15 +205,13 @@ class Pretrainer:
         ---------
         default_source : str or Path or FetchSource
             This is used for each loadable which doesn't have a path already
-            specified. If the loadable has key "asr", then the file to look for is
-            default_source/asr.ckpt
-        use_auth_token : bool (default: False)
-            If true Huggingface's auth_token will be used to load private models from the HuggingFace Hub,
-            default is False because the majority of models are public.
-        local_strategy : speechbrain.utils.fetching.LocalStrategy
-            The fetching strategy to use, which controls the behavior of remote file
-            fetching with regards to symlinking and copying.
-            See :func:`speechbrain.utils.fetching.fetch` for further details.
+            specified.
+            e.g. if the loadable has key `"asr"`, then the file to look for is
+            `<default_source>/asr.ckpt`
+        local_strategy : LocalStrategy
+            How to perform caching on the file for local storage.
+        fetch_config : FetchConfig
+            Configuration options like caching strategy for fetching files.
 
         Returns
         -------
@@ -207,10 +220,25 @@ class Pretrainer:
             parameters can be loaded. This is not used in this class, but
             can possibly be helpful.
         """
-        logger.debug(
-            f"Collecting files (or symlinks) for pretraining in {self.collect_in}."
-        )
-        self.collect_in.mkdir(exist_ok=True)
+
+        if self.collect_in is not None:
+            logger.debug(
+                f"Collecting files (or symlinks) for pretraining in {self.collect_in}."
+            )
+            self.collect_in.mkdir(exist_ok=True)
+
+            if (
+                platform.system() == "Windows"
+                and local_strategy == LocalStrategy.SYMLINK
+            ):
+                warnings.warn(
+                    "Requested Pretrainer collection using symlinks on Windows. This might not work; see `LocalStrategy` documentation. Consider unsetting `collect_in` in Pretrainer to avoid symlinking altogether."
+                )
+        else:
+            logger.debug(
+                "Fetching files for pretraining (no collection directory set)"
+            )
+
         loadable_paths = {}
         for name in self.loadables:
             if not self.is_loadable(name):
@@ -227,22 +255,15 @@ class Pretrainer:
                     "and no default_source given!"
                 )
 
-            fetch_kwargs = {
-                "filename": filename,
-                "source": source,
-                "savedir": self.collect_in,
-                "overwrite": False,
-                "save_filename": save_filename,
-                "use_auth_token": use_auth_token,
-                "revision": None,
-                "local_strategy": local_strategy,
-            }
-
-            # path needs to be available only if it is a local source w/o symlink
-            run_on_main(fetch, kwargs=fetch_kwargs)
-
-            # we need the path; regardless of rank
-            path = fetch(**fetch_kwargs)
+            # Fetch now handles multiprocessing!
+            path = fetch(
+                filename=filename,
+                source=source,
+                savedir=self.collect_in,
+                save_filename=save_filename,
+                local_strategy=local_strategy,
+                fetch_config=fetch_config,
+            )
 
             loadable_paths[name] = path
             if isinstance(source, FetchSource):
@@ -285,13 +306,18 @@ class Pretrainer:
             if not self.is_loadable(name):
                 continue
             filename = name + PARAMFILE_EXT
-            paramfiles[name] = self.collect_in / filename
 
             if name in self.is_local:
                 logger.debug(
-                    f"Redirecting (loading from local path): {paramfiles[name]} -> {self.paths[name]}"
+                    f"Redirecting (loading from local path): {name} -> {self.paths[name]}"
                 )
                 paramfiles[name] = self.paths[name]
+            elif self.collect_in is not None:
+                paramfiles[name] = self.collect_in / filename
+            else:
+                raise ValueError(
+                    f'Pretrainer has never collected `{name}`, did you forget a call to `collect_files`? Could not fall back to `collect_in`, as it was not specified (default is no longer "model_checkpoints").'
+                )
         self._call_load_hooks(paramfiles)
 
     def _call_load_hooks(self, paramfiles):

@@ -6,6 +6,7 @@ Authors
  * Peter Plantinga 2024
 """
 
+import warnings
 from fnmatch import fnmatch
 
 import torch
@@ -13,6 +14,12 @@ import torch.nn as nn
 
 from speechbrain.nnet.activations import Swish
 from speechbrain.utils import checkpoints
+
+MHA_WARNING = """
+Torch's native multi-head attention is not adaptable since it accesses layer
+weights directly to pass to highly optimized fused kernels. We are excluding
+all native Torch MHA layers from the list of layers to adapt.
+"""
 
 
 @checkpoints.register_checkpoint_hooks
@@ -39,6 +46,12 @@ class AdaptedModel(nn.Module):
         Supports Unix shell-style wildcards `(*, ?, [seq], [!seq])` with `fnmatch`.
     adapter_kwargs: dict
         Ensemble of parameters that should be given to the adapter.
+    manual_adapter_insertion: bool
+        The default value (`False`) leads to the adapters being inserted at
+        the time of initialization. However, in some cases, it is preferable
+        to wait to insert the adapters, e.g. when pretrained parameters need to
+        be loaded. In this case, one can set this to `True` and call
+        `insert_adapters` manually after the parameters have been loaded.
 
     Example
     -------
@@ -81,30 +94,51 @@ class AdaptedModel(nn.Module):
         adapter_class: nn.Module,
         all_linear: bool = False,
         all_conv: bool = False,
-        target_layers=[],
-        unfrozen_layers=[],
-        adapter_kwargs={},
+        target_layers: list = [],
+        unfrozen_layers: list = [],
+        adapter_kwargs: dict = {},
+        manual_adapter_insertion: bool = False,
     ):
         super().__init__()
 
         # Collect and freeze layers
-        replace_layers = []
+        self.adapted_model = model_to_adapt
+        self.adapter_class = adapter_class
+        self.adapter_kwargs = adapter_kwargs
+        for param in model_to_adapt.parameters():
+            param.requires_grad = False
+
+        # Iterate modules to create list of layers to adapt
+        self.replace_layers = []
         for name, module in model_to_adapt.named_modules():
             if is_layer_adaptable(
                 name, module, all_linear, all_conv, target_layers
             ):
-                replace_layers.append(name)
-            elif not any(fnmatch(name, layer) for layer in unfrozen_layers):
+                # Torch's MultiheadAttention is not adaptable due to an
+                # optimized fused kernel, warn if we find this.
+                parent_name = ".".join(name.split(".")[:-1])
+                parent = model_to_adapt.get_submodule(parent_name)
+                if isinstance(parent, torch.nn.MultiheadAttention):
+                    warnings.warn(MHA_WARNING)
+                else:
+                    self.replace_layers.append(name)
+            elif any(fnmatch(name, layer) for layer in unfrozen_layers):
                 for param in module.parameters():
-                    param.requires_grad = False
+                    param.requires_grad = True
 
-        # Replace the collected layer names
-        for name in replace_layers:
-            module = model_to_adapt.get_submodule(name)
-            new_module = adapter_class(module, **adapter_kwargs)
-            replace_module(model_to_adapt, name, new_module)
+        # Some cases require a delay in adapter insertion, e.g. using Pretrainer
+        if not manual_adapter_insertion:
+            self.insert_adapters()
 
-        self.adapted_model = model_to_adapt
+    def insert_adapters(self):
+        """If this is in `__init__` it conflicts with `Pretrainer`.
+        Ensure this function is called exactly once before training.
+        See ``__init__.manual_adapter_insertion``
+        """
+        for name in self.replace_layers:
+            module = self.adapted_model.get_submodule(name)
+            new_module = self.adapter_class(module, **self.adapter_kwargs)
+            replace_module(self.adapted_model, name, new_module)
 
     def forward(self, *args, **kwargs):
         """Pass arguments to adapted model."""
@@ -113,8 +147,12 @@ class AdaptedModel(nn.Module):
     @checkpoints.mark_as_saver
     def saver(self, path):
         """Saves only the trainable parameters."""
+        # NOTE: In order to preserve the gradient info, we have to prevent `state_dict` from detaching
+        # all the parameters and buffers. The `keep_vars=True` does this, then we detach manually
         state_dict = {
-            n: p for n, p in self.state_dict().items() if p.requires_grad
+            name: param.detach()
+            for name, param in self.state_dict(keep_vars=True).items()
+            if param.requires_grad
         }
         torch.save(state_dict, path)
 
