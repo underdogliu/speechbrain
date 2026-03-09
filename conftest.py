@@ -11,7 +11,6 @@ def pytest_generate_tests(metafunc):
 
 
 collect_ignore = [
-    "setup.py",
     "speechbrain/integrations/",
     # These can be removed once the modules are fully deprecated
     "speechbrain/utils/bleu.py",
@@ -22,7 +21,3 @@ collect_ignore = [
     "speechbrain/lobes/models/fairseq_wav2vec.py",
     "speechbrain/lobes/models/kmeans.py",
 ]
-try:
-    import numba  # noqa: F401
-except ModuleNotFoundError:
-    collect_ignore.append("speechbrain/nnet/loss/transducer_loss.py")
